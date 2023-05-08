@@ -19,14 +19,11 @@
  * limitations under the License.
  */
 
-// codebeat:disable[TOO_MANY_FUNCTIONS]
-
 #import "APPLocalNotification.h"
-#import "APPNotificationContent.h"
 #import "APPNotificationOptions.h"
-#import "APPNotificationCategory.h"
 #import "UNUserNotificationCenter+APPLocalNotification.h"
 #import "UNNotificationRequest+APPLocalNotification.h"
+#import "APPNotificationContent.h"
 
 @interface APPLocalNotification ()
 
@@ -40,11 +37,6 @@
 @end
 
 @implementation APPLocalNotification
-
-UNNotificationPresentationOptions const OptionNone  = UNNotificationPresentationOptionNone;
-UNNotificationPresentationOptions const OptionBadge = UNNotificationPresentationOptionBadge;
-UNNotificationPresentationOptions const OptionSound = UNNotificationPresentationOptionSound;
-UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentationOptionAlert;
 
 @synthesize deviceready, isActive, eventQueue;
 
@@ -104,17 +96,6 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
         for (NSDictionary* options in notifications) {
             APPNotificationContent* notification;
 
-            // Delete an existing alarm with this ID first
-            NSNumber* id = [options objectForKey:@"id"];
-            UNNotificationRequest* oldNotification;
-
-            oldNotification = [_center getNotificationWithId:id];
-
-            if (oldNotification) {
-                [_center cancelNotification:oldNotification];
-            }
-
-            // Schedule the new notification
             notification = [[APPNotificationContent alloc]
                             initWithOptions:options];
 
@@ -190,7 +171,7 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 - (void) clearAll:(CDVInvokedUrlCommand*)command
 {
     [self.commandDelegate runInBackground:^{
-        [_center clearNotifications];
+        [_center clearAllNotifications];
         [self clearApplicationIconBadgeNumber];
         [self fireEvent:@"clearall"];
         [self execCallback:command];
@@ -231,7 +212,7 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 - (void) cancelAll:(CDVInvokedUrlCommand*)command
 {
     [self.commandDelegate runInBackground:^{
-        [_center cancelNotifications];
+        [_center cancelAllNotifications];
         [self clearApplicationIconBadgeNumber];
         [self fireEvent:@"cancelall"];
         [self execCallback:command];
@@ -272,28 +253,46 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 }
 
 /**
- * List of notification IDs by type.
+ * List of all notification IDs.
  *
  * @return [ Void ]
  */
 - (void) ids:(CDVInvokedUrlCommand*)command
 {
+    [self ids:command byType:NotifcationTypeAll];
+}
+
+/**
+ * List of all scheduled notification IDs.
+ *
+ * @return [ Void ]
+ */
+- (void) scheduledIds:(CDVInvokedUrlCommand*)command
+{
+    [self ids:command byType:NotifcationTypeScheduled];
+}
+
+/**
+ * List of all triggered notification IDs.
+ *
+ * @return [ Void ]
+ */
+- (void) triggeredIds:(CDVInvokedUrlCommand*)command
+{
+    [self ids:command byType:NotifcationTypeTriggered];
+}
+
+/**
+ * List of ids for given local notifications.
+ *
+ * @param [ APPNotificationType ] type The type of notifications to look for.
+ *
+ * @return [ Void ]
+ */
+- (void) ids:(CDVInvokedUrlCommand*)command
+      byType:(APPNotificationType)type;
+{
     [self.commandDelegate runInBackground:^{
-        int code                 = [command.arguments[0] intValue];
-        APPNotificationType type = NotifcationTypeUnknown;
-
-        switch (code) {
-            case 0:
-                type = NotifcationTypeAll;
-                break;
-            case 1:
-                type = NotifcationTypeScheduled;
-                break;
-            case 2:
-                type = NotifcationTypeTriggered;
-                break;
-        }
-
         NSArray* ids = [_center getNotificationIdsByType:type];
 
         CDVPluginResult* result;
@@ -338,35 +337,57 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
  */
 - (void) notifications:(CDVInvokedUrlCommand*)command
 {
+    [self notifications:command byType:NotifcationTypeAll];
+}
+
+/**
+ * List of scheduled notifications by id.
+ *
+ * @param [ Array<Number> ] ids The ids of the notifications to return.
+ *
+ * @return [ Void ]
+ */
+- (void) scheduledNotifications:(CDVInvokedUrlCommand*)command
+{
+    [self notifications:command byType:NotifcationTypeScheduled];
+}
+
+/**
+ * List of triggered notifications by id.
+ *
+ * @param [ Array<Number> ] ids The ids of the notifications to return.
+ *
+ * @return [ Void ]
+ */
+- (void) triggeredNotifications:(CDVInvokedUrlCommand *)command
+{
+    [self notifications:command byType:NotifcationTypeTriggered];
+}
+
+/**
+ * List of notifications by type or id.
+ *
+ * @param [ APPNotificationType ] type The type of notifications to look for.
+ *
+ * @return [ Void ]
+ */
+- (void) notifications:(CDVInvokedUrlCommand*)command
+                byType:(APPNotificationType)type;
+{
     [self.commandDelegate runInBackground:^{
-        int code                 = [command.arguments[0] intValue];
-        APPNotificationType type = NotifcationTypeUnknown;
-        NSArray* toasts;
-        NSArray* ids;
+        NSArray* ids = command.arguments;
+        NSArray* notifications;
 
-        switch (code) {
-            case 0:
-                type = NotifcationTypeAll;
-                break;
-            case 1:
-                type = NotifcationTypeScheduled;
-                break;
-            case 2:
-                type = NotifcationTypeTriggered;
-                break;
-            case 3:
-                ids    = command.arguments[1];
-                toasts = [_center getNotificationOptionsById:ids];
-                break;
+        if (ids.count > 0) {
+            notifications = [_center getNotificationOptionsById:ids];
         }
-
-        if (toasts == nil) {
-            toasts = [_center getNotificationOptionsByType:type];
+        else {
+            notifications = [_center getNotificationOptionsByType:type];
         }
 
         CDVPluginResult* result;
         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
-                                    messageAsArray:toasts];
+                                    messageAsArray:notifications];
 
         [self.commandDelegate sendPluginResult:result
                                     callbackId:command.callbackId];
@@ -382,10 +403,15 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 {
     [_center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings* settings) {
         BOOL authorized = settings.authorizationStatus == UNAuthorizationStatusAuthorized;
-        BOOL enabled    = settings.notificationCenterSetting == UNNotificationSettingEnabled;
-        BOOL permitted  = authorized && enabled;
+        BOOL enabled = settings.notificationCenterSetting == UNNotificationSettingEnabled;
+        BOOL permitted = authorized && enabled;
 
-        [self execCallback:command arg:permitted];
+        CDVPluginResult* result;
+        result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK
+                                     messageAsBool:permitted];
+
+        [self.commandDelegate sendPluginResult:result
+                                    callbackId:command.callbackId];
     }];
 }
 
@@ -412,27 +438,14 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 - (void) actions:(CDVInvokedUrlCommand *)command
 {
     [self.commandDelegate runInBackground:^{
-        int code             = [command.arguments[0] intValue];
-        NSString* identifier = [command argumentAtIndex:1];
-        NSArray* actions     = [command argumentAtIndex:2];
-        UNNotificationCategory* group;
-        BOOL found;
+        NSDictionary* options = command.arguments[0];
+        APPNotificationContent* notification;
 
-        switch (code) {
-            case 0:
-                group = [APPNotificationCategory parse:actions withId:identifier];
-                [_center addActionGroup:group];
-                [self execCallback:command];
-                break;
-            case 1:
-                [_center removeActionGroup:identifier];
-                [self execCallback:command];
-                break;
-            case 2:
-                found = [_center hasActionGroup:identifier];
-                [self execCallback:command arg:found];
-                break;
-        }
+        notification = [[APPNotificationContent alloc]
+                        initWithOptions:options];
+
+        [_center addNotificationCategory:notification.category];
+        [self execCallback:command];
     }];
 }
 
@@ -448,9 +461,11 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
  */
 - (void) scheduleNotification:(APPNotificationContent*)notification
 {
-    __weak APPLocalNotification* weakSelf = self;
-    UNNotificationRequest* request        = notification.request;
-    NSString* event                       = [request wasUpdated] ? @"update" : @"add";
+    __weak APPLocalNotification* weakSelf  = self;
+    UNNotificationRequest* request = notification.request;
+    NSString* event = [notification.request wasUpdated] ? @"update" : @"add";
+
+    [_center addNotificationCategory:notification.category];
 
     [_center addNotificationRequest:request withCompletionHandler:^(NSError* e) {
         __strong APPLocalNotification* strongSelf = weakSelf;
@@ -488,16 +503,16 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
  */
 - (void) userNotificationCenter:(UNUserNotificationCenter *)center
         willPresentNotification:(UNNotification *)notification
-          withCompletionHandler:(void (^)(UNNotificationPresentationOptions))handler
+          withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler
 {
     UNNotificationRequest* toast = notification.request;
 
-    [_delegate userNotificationCenter:center
-              willPresentNotification:notification
-                withCompletionHandler:handler];
-
-    if ([toast.trigger isKindOfClass:UNPushNotificationTrigger.class])
+    if ([toast.trigger isKindOfClass:UNPushNotificationTrigger.class]) {
+        [_delegate userNotificationCenter:center
+                  willPresentNotification:notification
+                    withCompletionHandler:completionHandler];
         return;
+    }
 
     APPNotificationOptions* options = toast.options;
 
@@ -506,11 +521,11 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
     }
 
     if (options.silent) {
-        handler(OptionNone);
+        completionHandler(UNNotificationPresentationOptionNone);
     } else if (!isActive || options.priority > 0) {
-        handler(OptionBadge|OptionSound|OptionAlert);
+        completionHandler(UNNotificationPresentationOptionBadge|UNNotificationPresentationOptionSound|UNNotificationPresentationOptionAlert);
     } else {
-        handler(OptionBadge|OptionSound);
+        completionHandler(UNNotificationPresentationOptionBadge|UNNotificationPresentationOptionSound);
     }
 }
 
@@ -520,18 +535,18 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
  */
 - (void) userNotificationCenter:(UNUserNotificationCenter *)center
  didReceiveNotificationResponse:(UNNotificationResponse *)response
-          withCompletionHandler:(void (^)(void))handler
+          withCompletionHandler:(void (^)(void))completionHandler
 {
     UNNotificationRequest* toast = response.notification.request;
 
-    [_delegate userNotificationCenter:center
-       didReceiveNotificationResponse:response
-                withCompletionHandler:handler];
+    completionHandler();
 
-    handler();
-
-    if ([toast.trigger isKindOfClass:UNPushNotificationTrigger.class])
+    if ([toast.trigger isKindOfClass:UNPushNotificationTrigger.class]) {
+        [_delegate userNotificationCenter:center
+           didReceiveNotificationResponse:response
+                    withCompletionHandler:completionHandler];
         return;
+    }
 
     NSMutableDictionary* data = [[NSMutableDictionary alloc] init];
     NSString* action          = response.actionIdentifier;
@@ -570,8 +585,8 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 {
     eventQueue = [[NSMutableArray alloc] init];
     _center    = [UNUserNotificationCenter currentNotificationCenter];
-    _delegate  = _center.delegate;
 
+    _delegate = _center.delegate;
     _center.delegate = self;
     [_center registerGeneralNotificationCategory];
 
@@ -616,21 +631,6 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 {
     CDVPluginResult *result = [CDVPluginResult
                                resultWithStatus:CDVCommandStatus_OK];
-
-    [self.commandDelegate sendPluginResult:result
-                                callbackId:command.callbackId];
-}
-
-/**
- * Invokes the callback with a single boolean parameter.
- *
- * @return [ Void ]
- */
-- (void) execCallback:(CDVInvokedUrlCommand*)command arg:(BOOL)arg
-{
-    CDVPluginResult *result = [CDVPluginResult
-                               resultWithStatus:CDVCommandStatus_OK
-                               messageAsBool:arg];
 
     [self.commandDelegate sendPluginResult:result
                                 callbackId:command.callbackId];
@@ -715,5 +715,3 @@ UNNotificationPresentationOptions const OptionAlert = UNNotificationPresentation
 }
 
 @end
-
-// codebeat:enable[TOO_MANY_FUNCTIONS]
